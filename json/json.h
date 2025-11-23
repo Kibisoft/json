@@ -4,7 +4,6 @@
 #include <stack>
 
 #include <Windows.h>
-#include "utils.h"
 
 struct begin_block {};
 struct end_block {};
@@ -101,7 +100,7 @@ public:
 		return os;
 	}
 
-	friend json& operator<<(json& os, begin_block s)
+	friend json& operator<<(json& os, begin_block)
 	{
 		if (os.context.top().objects_count == 0)
 		{
@@ -117,7 +116,7 @@ public:
 		return os;
 	}
 
-	friend json& operator<<(json& os, end_block s)
+	friend json& operator<<(json& os, end_block)
 	{
 		os.str << '}';
 
@@ -127,7 +126,7 @@ public:
 		return os;
 	}
 
-	friend json& operator<<(json& os, begin_array s)
+	friend json& operator<<(json& os, begin_array)
 	{
 		if (os.context.top().attribute)
 		{
@@ -143,7 +142,7 @@ public:
 		return os;
 	}
 
-	friend json& operator<<(json& os, end_array s)
+	friend json& operator<<(json& os, end_array)
 	{
 		os.str << ']';
 
