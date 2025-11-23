@@ -1,41 +1,15 @@
 #pragma once
 
 #include <sstream>
+#include <stack>
+
 #include <Windows.h>
 #include "utils.h"
 
-typedef struct { const char* data; } json_begin_block;
-typedef struct { const char* data; } json_end_block;
-
-#ifndef INLINE_JSON_API
-
-json_begin_block beginobj();
-json_end_block endobj();
-json_begin_block beginarray();
-json_end_block endarray();
-std::string espaceJson(const std::string& input);
-
-#else
-
-json_begin_block beginobj()
-{
-	return json_begin_block{ "{ " };
-}
-
-json_end_block endobj()
-{
-	return json_end_block{ "}" };
-}
-
-json_begin_block beginarray()
-{
-	return json_begin_block{ "[" };
-}
-
-json_end_block endarray()
-{
-	return json_end_block{ "]" };
-}
+struct begin_block {};
+struct end_block {};
+struct begin_array {};
+struct end_array {};
 
 std::string espaceJson(const std::string& input)
 {
@@ -82,119 +56,162 @@ std::string espaceJson(const std::string& input)
 	return output;
 }
 
-#endif // !INLINE_JSON_API
-
 std::string to_utf8(const std::string& input);
 std::string to_codepage(const std::string& utf8Str);
 
 class json
 {
+	private:
+		struct stack_frame
+		{
+			bool attribute = false;
+			int attributes_count = 0;
+			int objects_count = 0;
+		};
+
 private:
 	std::ostringstream str;
-	mutable size_t attribute = -1;
 	unsigned int codepage;
+
+	std::stack<stack_frame> context;
 
 public:
 
 	json(unsigned int cp) : codepage(cp)
 	{
-		str << "{ ";
+		context.push(stack_frame());
+		*this << begin_block();
 	}
 
 	json() : codepage(CP_UTF8)
 	{
-		str << "{ ";
+		context.push(stack_frame());
+		*this << begin_block();
 	}
+
 	std::string to_string() const
 	{
-		attribute = -1;
 		return str.str() + " }";
 	}
 
 	friend json& operator<<(json& os, const std::string& s)
 	{
-		os.before();
-
 		os.str << '\"' << (espaceJson(s)) << '\"';
 
-		os.after();
+		return os;
+	}
+
+	friend json& operator<<(json& os, begin_block s)
+	{
+		if (os.context.top().objects_count == 0)
+		{
+			os.str << '{';
+		}
+		else
+		{
+			os.str << ", {";
+		}
+
+		os.context.push(stack_frame());
 
 		return os;
 	}
 
-	friend json& operator<<(json& os, json_begin_block s)
+	friend json& operator<<(json& os, end_block s)
 	{
-		os.before();
+		os.str << '}';
 
-		os.str << s.data;
-
-		os.attribute = -1;
+		os.context.pop();
+		os.context.top().objects_count++;
 
 		return os;
 	}
 
-	friend json& operator<<(json& os, json_end_block s)
+	friend json& operator<<(json& os, begin_array s)
 	{
-		os.str << s.data;
+		if (os.context.top().attribute)
+		{
+			os.str << " : [";
+		}
+		else
+		{
+			os.str << '[';
+		}
+
+		os.context.push(stack_frame());
+
+		return os;
+	}
+
+	friend json& operator<<(json& os, end_array s)
+	{
+		os.str << ']';
+
+		os.context.pop();
+
+		os.context.top().attribute = !os.context.top().attribute;
+		if (!os.context.top().attribute)
+		{
+			os.context.top().attributes_count++;
+		}
 
 		return os;
 	}
 
 	friend json& operator<<(json& os, const char* s)
 	{
-		os.before();
+		if (os.context.top().attribute)
+		{
+			os.str << " : ";
+		}
+		else if (os.context.top().attributes_count)
+		{
+			os.str << ", ";
+		}
 
 		os.str << '\"' << (espaceJson(s)) << '\"';
 
-		os.after();
-
+		os.context.top().attribute = !os.context.top().attribute;
+		if (!os.context.top().attribute)
+		{
+			os.context.top().attributes_count++;
+		}
+		
 		return os;
 	}
 
 	friend json& operator<<(json& os, const json& j)
 	{
-		if (os.attribute)
-		{
-			os.before();
-
-			os.str << ' ' << j.to_string();
-
-			os.after();
-		}
-		else
-			throw std::runtime_error("An error occurred!");
+		os.str << ' ' << j.to_string();
 
 		return os;
 	}
 
 	friend json& operator<<(json& os, bool b)
 	{
-		if (os.attribute)
+		if (os.context.top().attribute)
 		{
-			os.before();
-
-			os.str << ' ' << (b ? "true" : "false");
-
-			os.after();
+			os.str << " : ";
 		}
-		else
-			throw std::runtime_error("An error occurred!");
+		else if (os.context.top().attributes_count)
+		{
+			os.str << ", ";
+		}
+
+		os.str << ' ' << (b ? "true" : "false");
+
+		os.context.top().attribute = !os.context.top().attribute;
+		if (!os.context.top().attribute)
+		{
+			os.context.top().attributes_count++;
+		}
 
 		return os;
 	}
 
 	friend json& operator<<(json& os, const std::ostringstream& rawJson)
 	{
-		if (os.attribute)
-		{
-			os.before();
-			os.str << ' ' << rawJson.str(); // no quotes
-			os.after();
-		}
-		else
-		{
-			throw std::runtime_error("An error occurred!");
-		}
+		os.str << ' ' << rawJson.str(); // no quotes
 
 		return os;
 	}
@@ -203,41 +220,25 @@ public:
 	template<class T>
 	friend json& operator<<(json& os, const T& value)
 	{
-		if (os.attribute)
+		if (os.context.top().attribute)
 		{
-			os.before();
-
-			os.str << ' ' << value;
-
-			os.after();
+			os.str << " : ";
 		}
-		else
-			throw std::runtime_error("An error occurred!");
+		else if (os.context.top().attributes_count)
+		{
+			os.str << ", ";
+		}
+
+		os.str << ' ' << value;
+
+		os.context.top().attribute = !os.context.top().attribute;
+		if (!os.context.top().attribute)
+		{
+			os.context.top().attributes_count++;
+		}
 
 		return os;
 	}
-
-
-
-private:
-
-	void before()
-	{
-		if (attribute == -1)
-			attribute = 0;
-		else if (attribute)
-			str << ": ";
-		else
-			str << ", ";
-	}
-
-	void after()
-	{
-		attribute = (++attribute) & 1;
-	}
-
-
-
 };
 
 
