@@ -229,7 +229,7 @@ public:
 			os.str << ", ";
 		}
 
-		os.str << ' ' << value; //
+		os.str << ' ' << value;
 
 		os.context.top().attribute = !os.context.top().attribute;
 		if (!os.context.top().attribute)
